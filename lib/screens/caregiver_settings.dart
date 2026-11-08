@@ -1,6 +1,7 @@
-import 'dart:convert';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:memora/api_service.dart';
+import 'package:memora/theme.dart';
 import 'login.dart';
 
 class CaregiverSettingsScreen extends StatefulWidget {
@@ -18,21 +19,18 @@ class _CaregiverSettingsScreenState extends State<CaregiverSettingsScreen> {
 
   Future<void> _logout() async {
     setState(() => _isLoggingOut = true);
-    final uri = Uri.parse('http://192.168.100.22:8000/api/logout/');
-    final headers = {'Content-Type': 'application/json'};
 
     try {
-      final response = await http.post(
-        uri,
-        headers: headers,
-        body: jsonEncode({}),
+      final response = await ApiService.dio.post(
+        '/api/logout/',
+        data: {},
       );
 
       if (response.statusCode == 200) {
-        final responseData = jsonDecode(response.body);
+        final responseData = response.data;
         final message = responseData['message'] as String?;
 
-        if (message == 'Logout successful') {
+        if (message == 'Logged out successfully') {
           if (mounted) {
             Navigator.of(context).pushReplacement(
               MaterialPageRoute(
@@ -43,21 +41,27 @@ class _CaregiverSettingsScreenState extends State<CaregiverSettingsScreen> {
         } else {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Logout failed: $message')),
+              SnackBar(content: Text('Logout failed: \$message')),
             );
           }
         }
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to connect to server: ${response.statusCode}')),
+            SnackBar(content: Text('Failed to connect to server: \${response.statusCode}')),
           );
         }
+      }
+    } on DioException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: \${e.message}')),
+        );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
+          SnackBar(content: Text('Error: \$e')),
         );
       }
     } finally {
@@ -73,7 +77,7 @@ class _CaregiverSettingsScreenState extends State<CaregiverSettingsScreen> {
       appBar: AppBar(
         title: const Text("Settings"),
         centerTitle: true,
-        backgroundColor: Colors.blue,
+        backgroundColor: white,
       ),
       body: ListView(
         padding: const EdgeInsets.all(16.0),
@@ -83,72 +87,125 @@ class _CaregiverSettingsScreenState extends State<CaregiverSettingsScreen> {
             style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
+              color: white,
             ),
           ),
           const SizedBox(height: 20),
-          SwitchListTile(
-            title: const Text("Enable Notifications"),
-            subtitle: const Text("Receive alerts and updates"),
-            value: _notificationsEnabled,
-            onChanged: (bool value) {
-              setState(() {
-                _notificationsEnabled = value;
-              });
-            },
-            secondary: const Icon(Icons.notifications),
+          Container(
+            decoration: BoxDecoration(
+              border: Border.all(color: darkNavy, width: 2.0),
+              borderRadius: BorderRadius.circular(12.0),
+            ),
+            margin: const EdgeInsets.only(bottom: 12.0),
+            padding: const EdgeInsets.all(8.0),
+            child: SwitchListTile(
+              title: const Text("Enable Notifications"),
+              subtitle: const Text("Receive alerts and updates"),
+              value: _notificationsEnabled,
+              onChanged: (bool value) {
+                setState(() {
+                  _notificationsEnabled = value;
+                });
+              },
+              secondary: const Icon(Icons.notifications, color: darkNavy),
+              activeColor: pastelYellow,
+            ),
           ),
-          SwitchListTile(
-            title: const Text("Location Sharing"),
-            subtitle: const Text("Share location with trusted contacts"),
-            value: _locationSharing,
-            onChanged: (bool value) {
-              setState(() {
-                _locationSharing = value;
-              });
-            },
-            secondary: const Icon(Icons.location_on),
+          Container(
+            decoration: BoxDecoration(
+              border: Border.all(color: darkNavy, width: 2.0),
+              borderRadius: BorderRadius.circular(12.0),
+            ),
+            margin: const EdgeInsets.only(bottom: 12.0),
+            padding: const EdgeInsets.all(8.0),
+            child: SwitchListTile(
+              title: const Text("Location Sharing"),
+              subtitle: const Text("Share location with trusted contacts"),
+              value: _locationSharing,
+              onChanged: (bool value) {
+                setState(() {
+                  _locationSharing = value;
+                });
+              },
+              secondary: const Icon(Icons.location_on, color: darkNavy),
+              activeColor: pastelYellow,
+            ),
           ),
-          SwitchListTile(
-            title: const Text("Emergency Alerts"),
-            subtitle: const Text("Send automatic alerts in emergencies"),
-            value: _emergencyAlerts,
-            onChanged: (bool value) {
-              setState(() {
-                _emergencyAlerts = value;
-              });
-            },
-            secondary: const Icon(Icons.warning_amber_rounded),
+          Container(
+            decoration: BoxDecoration(
+              border: Border.all(color: darkNavy, width: 2.0),
+              borderRadius: BorderRadius.circular(12.0),
+            ),
+            margin: const EdgeInsets.only(bottom: 12.0),
+            padding: const EdgeInsets.all(8.0),
+            child: SwitchListTile(
+              title: const Text("Emergency Alerts"),
+              subtitle: const Text("Send automatic alerts in emergencies"),
+              value: _emergencyAlerts,
+              onChanged: (bool value) {
+                setState(() {
+                  _emergencyAlerts = value;
+                });
+              },
+              secondary: const Icon(Icons.warning_amber_rounded, color: darkNavy),
+              activeColor: pastelYellow,
+            ),
           ),
-          const Divider(height: 40),
+          Divider(height: 40, color: white.withOpacity(0.2)),
           const Text(
             "Account Information",
             style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
+              color: white,
             ),
           ),
           const SizedBox(height: 10),
-          ListTile(
-            leading: const Icon(Icons.person),
-            title: const Text("Caregiver Profile"),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              // TODO: Navigate to profile screen
-            },
+          Container(
+            decoration: BoxDecoration(
+              border: Border.all(color: darkNavy, width: 2.0),
+              borderRadius: BorderRadius.circular(12.0),
+            ),
+            margin: const EdgeInsets.only(bottom: 12.0),
+            padding: const EdgeInsets.all(8.0),
+            child: ListTile(
+              leading: const Icon(Icons.person, color: darkNavy),
+              title: const Text("Caregiver Profile"),
+              trailing: const Icon(Icons.chevron_right, color: darkNavy),
+              onTap: () {
+                // TODO: Navigate to profile screen
+              },
+            ),
           ),
-          ListTile(
-            leading: const Icon(Icons.security),
-            title: const Text("Privacy & Security"),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              // TODO: Navigate to privacy settings
-            },
+          Container(
+            decoration: BoxDecoration(
+              border: Border.all(color: darkNavy, width: 2.0),
+              borderRadius: BorderRadius.circular(12.0),
+            ),
+            margin: const EdgeInsets.only(bottom: 12.0),
+            padding: const EdgeInsets.all(8.0),
+            child: ListTile(
+              leading: const Icon(Icons.security, color: darkNavy),
+              title: const Text("Privacy & Security"),
+              trailing: const Icon(Icons.chevron_right, color: darkNavy),
+              onTap: () {
+                // TODO: Navigate to privacy settings
+              },
+            ),
           ),
-          ListTile(
-            leading: const Icon(Icons.logout),
-            title: const Text("Sign Out"),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: _isLoggingOut ? null : () => _logout(),
+          Container(
+            decoration: BoxDecoration(
+              border: Border.all(color: darkNavy, width: 2.0),
+              borderRadius: BorderRadius.circular(12.0),
+            ),
+            margin: const EdgeInsets.only(bottom: 12.0),
+            padding: const EdgeInsets.all(8.0),
+            child: ListTile(
+              leading: const Icon(Icons.logout, color: darkNavy),
+              title: const Text("Sign Out"),
+              trailing: const Icon(Icons.chevron_right, color: darkNavy),
+              onTap: _isLoggingOut ? null : () => _logout(),
+            ),
           ),
         ],
       ),

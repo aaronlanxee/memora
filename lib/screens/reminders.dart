@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:memora/theme.dart';
 
 class RemindersScreen extends StatefulWidget {
   const RemindersScreen({super.key});
@@ -14,7 +15,7 @@ class _RemindersScreenState extends State<RemindersScreen> {
       appBar: AppBar(
         title: const Text("Reminders"),
         centerTitle: true,
-        backgroundColor: Colors.blue,
+        backgroundColor: white,
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -26,6 +27,7 @@ class _RemindersScreenState extends State<RemindersScreen> {
               style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
+                color: white,
               ),
             ),
             const SizedBox(height: 20),
@@ -36,19 +38,19 @@ class _RemindersScreenState extends State<RemindersScreen> {
                     "Take medication",
                     "Today at 9:00 AM",
                     Icons.medical_services,
-                    Colors.blue,
+                    pastelYellow,
                   ),
                   _buildReminderCard(
-                    "Doctor's appointment",
+                    "Doctor\'s appointment",
                     "Tomorrow at 2:30 PM",
                     Icons.local_hospital,
-                    Colors.green,
+                    pastelYellow,
                   ),
                   _buildReminderCard(
                     "Buy groceries",
                     "Friday at 5:00 PM",
                     Icons.shopping_cart,
-                    Colors.orange,
+                    pastelYellow,
                   ),
                 ],
               ),
@@ -61,6 +63,8 @@ class _RemindersScreenState extends State<RemindersScreen> {
                 icon: const Icon(Icons.add),
                 label: const Text("Add New Reminder"),
                 style: ElevatedButton.styleFrom(
+                  backgroundColor: pastelYellow,
+                  foregroundColor: darkNavy,
                   padding: const EdgeInsets.symmetric(
                     horizontal: 30,
                     vertical: 15,
@@ -77,6 +81,7 @@ class _RemindersScreenState extends State<RemindersScreen> {
   Widget _buildReminderCard(String title, String time, IconData icon, Color color) {
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
+      color: indigoPurple,
       child: ListTile(
         leading: CircleAvatar(
           backgroundColor: color.withOpacity(0.2),
@@ -84,10 +89,10 @@ class _RemindersScreenState extends State<RemindersScreen> {
         ),
         title: Text(
           title,
-          style: const TextStyle(fontWeight: FontWeight.bold),
+          style: const TextStyle(fontWeight: FontWeight.bold, color: white),
         ),
-        subtitle: Text(time),
-        trailing: const Icon(Icons.chevron_right),
+        subtitle: Text(time, style: TextStyle(color: white)),
+        trailing: const Icon(Icons.chevron_right, color: white),
       ),
     );
   }

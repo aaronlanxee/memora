@@ -1,9 +1,11 @@
 import 'dart:async';
-import 'dart:convert';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:memora/api_service.dart';
+import 'package:memora/theme.dart';
+
 import 'result.dart';
 
 class SpeechScreen extends StatefulWidget {
@@ -15,24 +17,30 @@ class SpeechScreen extends StatefulWidget {
   final bool autoStart;
 
   @override
-  SpeechScreenState createState() => SpeechScreenState();
+  State<SpeechScreen> createState() => SpeechScreenState();
 }
 
 class SpeechScreenState extends State<SpeechScreen> {
-  late stt.SpeechToText _speech;
+  late final stt.SpeechToText _speech;
+
   bool _isListening = false;
-  String _text = "Hold the mic button and speak...";
-  double _confidence = 0;
+  bool _isSending = false;
+  bool _hasSubmitted = false;
+
+  String _text = 'Press the microphone and speak.';
+  String _recognizedText = '';
+
   Timer? _silenceTimer;
 
   @override
   void initState() {
     super.initState();
+
     _speech = stt.SpeechToText();
 
     if (widget.autoStart) {
-      Future.delayed(const Duration(milliseconds: 300), () {
-        startListening();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) startListening();
       });
     }
   }
@@ -40,122 +48,321 @@ class SpeechScreenState extends State<SpeechScreen> {
   @override
   void dispose() {
     _silenceTimer?.cancel();
-    _speech.stop();
+    _speech.cancel();
     super.dispose();
   }
 
   Future<void> startListening() async {
-    if (_isListening) return;
+    if (_isListening || _isSending) return;
 
-    final available = await _speech.initialize();
-    if (available) {
+    _silenceTimer?.cancel();
+    _recognizedText = '';
+    _hasSubmitted = false;
+
+    setState(() {
+      _isListening = false;
+      _text = 'Starting microphone...';
+    });
+
+    try {
+      final available = await _speech.initialize(
+        onStatus: (status) {
+          debugPrint('Speech status: $status');
+        },
+        onError: (error) {
+          debugPrint('Speech error: $error');
+
+          if (!mounted) return;
+
+          _silenceTimer?.cancel();
+
+          setState(() {
+            _isListening = false;
+            if (_recognizedText.isEmpty) {
+              _text = 'Could not recognize speech. Please try again.';
+            }
+          });
+        },
+      );
+
+      if (!mounted) return;
+
+      if (!available) {
+        setState(() {
+          _text = 'Speech recognition is unavailable.';
+        });
+        return;
+      }
+
       setState(() {
         _isListening = true;
-        _text = "Listening...";
+        _text = 'Listening...';
       });
 
       await _speech.listen(
-        onResult: (val) {
+        listenFor: const Duration(seconds: 60),
+        pauseFor: const Duration(seconds: 10),
+        onResult: (result) {
+          if (!mounted || _hasSubmitted) return;
+
+          final words = result.recognizedWords.trim();
+
+          debugPrint('Recognized speech: $words');
+
           setState(() {
-            _text = val.recognizedWords;
-            if (val.hasConfidenceRating) _confidence = val.confidence;
+            if (words.isNotEmpty) {
+              _recognizedText = words;
+              _text = words;
+            } else if (_recognizedText.isEmpty) {
+              _text = 'Listening...';
+            }
           });
-          if (_isListening) _startSilenceTimer();
+
+          if (words.isNotEmpty) {
+            // Every new speech result resets the silence timer.
+            _silenceTimer?.cancel();
+
+            _silenceTimer = Timer(
+              const Duration(seconds: 1),
+              _finishRecording,
+            );
+          }
         },
       );
+    } catch (e) {
+      debugPrint('Failed to start listening: $e');
+
+      if (mounted) {
+        setState(() {
+          _isListening = false;
+          _text = 'Unable to start microphone.';
+        });
+
+        _showError('Microphone error: $e');
+      }
     }
   }
 
-  void _startSilenceTimer() {
-    _silenceTimer?.cancel();
-    _silenceTimer = Timer(const Duration(seconds: 1), _handleSilenceTimeout);
-  }
+  Future<void> _finishRecording() async {
+    if (!_isListening || _hasSubmitted || _isSending) return;
 
-  Future<void> _handleSilenceTimeout() async {
-    await stopListening();
-    await _sendQueryToAPI();
+    // Prevent the timer from submitting more than once.
+    _hasSubmitted = true;
+    _silenceTimer?.cancel();
+
+    setState(() {
+      _isListening = false;
+      _text = 'Processing your speech...';
+    });
+
+    try {
+      // Stop recognition first so the speech plugin can deliver
+      // any final recognition result.
+      await _speech.stop();
+
+      // Allow the final recognition callback to update the text.
+      await Future.delayed(const Duration(milliseconds: 300));
+
+      if (!mounted) return;
+
+      final query = _recognizedText.trim();
+
+      debugPrint('Final query: $query');
+
+      if (query.isEmpty) {
+        setState(() {
+          _text = 'No speech detected. Please try again.';
+          _hasSubmitted = false;
+        });
+        return;
+      }
+
+      await _sendQueryToAPI(query);
+    } catch (e) {
+      debugPrint('Error finishing recording: $e');
+
+      if (mounted) {
+        setState(() {
+          _text = 'Could not process your speech.';
+          _hasSubmitted = false;
+        });
+      }
+    }
   }
 
   Future<void> stopListening() async {
-    if (_isListening) {
-      setState(() => _isListening = false);
-      await _speech.stop();
-    }
     _silenceTimer?.cancel();
+
+    if (!_isListening) return;
+
+    // Manual stop also submits the recognized speech.
+    await _finishRecording();
   }
 
-  Future<void> _sendQueryToAPI() async {
-    final uri = Uri.parse('http://192.168.100.22:8000/api/find_object/');
-    final body = jsonEncode({'query': _text.trim()});
+  Future<void> _sendQueryToAPI(String query) async {
+    if (query.isEmpty || _isSending) return;
+
+    setState(() {
+      _isSending = true;
+      _text = 'Sending your question...';
+    });
+
     try {
-      final response = await http.post(
-        uri,
-        headers: {'Content-Type': 'application/json'},
-        body: body,
+      debugPrint('POST /api/user_prompt/');
+      debugPrint('Query: $query');
+
+      final response = await ApiService.dio.post(
+        '/api/user_prompt/',
+        data: {
+          'query': query,
+        },
       );
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final responseText = data['response'] as String?;
-        if (responseText != null && responseText.isNotEmpty) {
-          if (mounted) {
-            Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => ResultScreen(responseText: responseText)),
-            );
-          }
-        } else {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Server returned empty response')),
-            );
-          }
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Server error: ${response.statusCode}')),
-          );
-        }
+      debugPrint('Status: ${response.statusCode}');
+      debugPrint('Response: ${response.data}');
+
+      if (!mounted) return;
+
+      final data = response.data;
+
+      if (response.statusCode != 200) {
+        _showError('Server returned ${response.statusCode}.');
+        return;
       }
-    } catch (e) {
+
+      if (data is! Map) {
+        _showError('Unexpected response format from the server.');
+        return;
+      }
+
+      // These keys must match the JSON returned by your Django view.
+      final responseText =
+          data['response']?.toString() ??
+              data['message']?.toString() ??
+              '';
+
+      if (responseText.trim().isEmpty) {
+        _showError(
+          'The API returned no answer. Check the Django response JSON.',
+        );
+        return;
+      }
+
+      // Open the result screen with the API answer.
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ResultScreen(
+            responseText: responseText,
+          ),
+        ),
+      );
+    } on DioException catch (e) {
+      debugPrint('Dio error: ${e.type}');
+      debugPrint('Dio message: ${e.message}');
+      debugPrint('Dio response: ${e.response?.data}');
+
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to reach server: $e')),
+        _showError(
+          e.response != null
+              ? 'Server error ${e.response?.statusCode}: ${e.response?.data}'
+              : 'Cannot connect to the server: ${e.message}',
         );
       }
+    } catch (e) {
+      debugPrint('Unexpected API error: $e');
+
+      if (mounted) {
+        _showError('Request failed: $e');
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSending = false;
+        });
+      }
     }
+  }
+
+  void _showError(String message) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 5),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
+      backgroundColor: mintBackground,
+      body: SafeArea(
         child: Center(
-          child: Card(
-            elevation: 4,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            child: Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: SingleChildScrollView(
-                child: Text(
-                  _text,
-                  style: const TextStyle(fontSize: 28),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 220,
+                  height: 220,
+                  alignment: Alignment.center,
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: white,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: tealBorder,
+                      width: 2,
+                    ),
+                  ),
+                  child: Icon(
+                    _isListening ? Icons.mic : Icons.mic_none,
+                    size: 80,
+                    color: _isListening ? indigoPurple : darkNavy,
+                  ),
                 ),
-              ),
+                const SizedBox(height: 30),
+                Text(
+                  _text,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 24,
+                    color: darkNavy,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                if (_isSending)
+                  const CircularProgressIndicator(
+                    color: indigoPurple,
+                  ),
+                const SizedBox(height: 20),
+                if (!_isSending)
+                  ElevatedButton.icon(
+                    onPressed: _isListening
+                        ? stopListening
+                        : startListening,
+                    icon: Icon(
+                      _isListening ? Icons.stop : Icons.mic,
+                    ),
+                    label: Text(
+                      _isListening ? 'Stop and send' : 'Start speaking',
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: pastelYellow,
+                      foregroundColor: darkNavy,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 16,
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
         ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          if (_isListening) {
-            stopListening();
-          } else {
-            startListening();
-          }
-        },
-        child: Icon(_isListening ? Icons.mic_none : Icons.mic),
       ),
     );
   }
